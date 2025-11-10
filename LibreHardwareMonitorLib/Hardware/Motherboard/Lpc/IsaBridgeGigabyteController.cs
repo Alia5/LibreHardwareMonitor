@@ -67,7 +67,6 @@ internal class IsaBridgeGigabyteController : IGigabyteController
             }
         }
 
-        // if we get 0xFF, we can't use the IsaBridgeGigabyteController
         if (!_isaBridgeEc.ReadMmio(
             superIoIndex: secondMmio.Index,
             offset: ControllerFanControlArea + ControllerEnableRegister,
@@ -80,7 +79,29 @@ internal class IsaBridgeGigabyteController : IGigabyteController
         }
 
 
+        //if (!_isaBridgeEc.GetOriginalState(out MMIOState originalstate) )
+        //{
+        //    _isaBridgeEc.Close();
+        //    return false;
+        //}
+
+        if (!_isaBridgeEc.TrySetState(MMIOState.MMIO_Original))
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+
+        if (!_isaBridgeEc.Unmap())
+        {
+            return false;
+        }
+
+
         isaBridgeGigabyteController = new IsaBridgeGigabyteController(_isaBridgeEc, secondMmio);
+
+        //_isaBridgeEc.Close();
+
         return true;
     }
 
@@ -91,43 +112,63 @@ internal class IsaBridgeGigabyteController : IGigabyteController
     /// <returns>true on success</returns>
     public bool Enable(bool enabled)
     {
-        if (_enabled is null)
-        {
-            if (!_isaBridgeEc.ReadMmio(
-                  superIoIndex: _mmio.Index,
-                  offset: ControllerFanControlArea + ControllerEnableRegister,
-                  size: 1,
-                  value: out byte readvaluebyte))
-            {
-                return false;
-            }
-
-            bool readValue = Convert.ToBoolean(readvaluebyte);
-            _restoreEnabled ??= readValue;
-            _enabled = Convert.ToBoolean(readvaluebyte);
-        }
-
-        if (_enabled == enabled)
-        {
-            return true;
-        }
-
-        byte writeValue = Convert.ToByte(enabled);
-
-        if (!_isaBridgeEc.WriteMmio(
-            superIoIndex: _mmio.Index,
-            offset: ControllerFanControlArea + ControllerEnableRegister,
-            size: 1,
-            value: writeValue))
+        // I have to set the state of the EC each time I want to read/write it
+        if (!_isaBridgeEc.TrySetState(MMIOState.MMIO_Enabled4E))
         {
             return false;
         }
 
-        Thread.Sleep(500);
+        if (!_isaBridgeEc.Map())
+        {
+            return false;
+        }
 
-        _enabled = enabled;
+        try
+        {
+            if (_enabled is null)
+            {
+                if (!_isaBridgeEc.ReadMmio(
+                      superIoIndex: _mmio.Index,
+                      offset: ControllerFanControlArea + ControllerEnableRegister,
+                      size: 1,
+                      value: out byte readvaluebyte))
+                {
+                    return false;
+                }
 
-        return true;
+                bool readValue = Convert.ToBoolean(readvaluebyte);
+                _restoreEnabled ??= readValue;
+                _enabled = Convert.ToBoolean(readvaluebyte);
+            }
+
+            if (_enabled == enabled)
+            {
+                return true;
+            }
+
+            byte writeValue = Convert.ToByte(enabled);
+
+            if (!_isaBridgeEc.WriteMmio(
+                superIoIndex: _mmio.Index,
+                offset: ControllerFanControlArea + ControllerEnableRegister,
+                size: 1,
+                value: writeValue))
+            {
+                return false;
+            }
+
+            Thread.Sleep(500);
+
+            _enabled = enabled;
+
+            return true;
+        }
+        finally
+        {
+            // but then I must restore it back each time so the ITE chip readings with the LPCPort work afterwards.
+            _isaBridgeEc.Unmap();
+            _isaBridgeEc.TrySetState(MMIOState.MMIO_Original);
+        }
     }
 
     /// <summary>

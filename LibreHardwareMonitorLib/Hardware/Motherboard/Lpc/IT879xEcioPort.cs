@@ -133,6 +133,6 @@ internal class IT879xEcioPort
         }
     }
 
-    private const long WAIT_TIMEOUT = 1000L;
+    private const long WAIT_TIMEOUT = 10000L;
     private readonly LpcPort _lpcPort;
 }
